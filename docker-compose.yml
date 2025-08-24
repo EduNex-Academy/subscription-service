@@ -1,0 +1,30 @@
+services:
+  # Subscription Service Database
+  subscription-db:
+    image: postgres:latest
+    container_name: subscription-db
+    environment:
+      POSTGRES_DB: subscription_db
+      POSTGRES_USER: subscription_user
+      POSTGRES_PASSWORD: subscription_pass
+    ports:
+      - "5434:5432"
+    volumes:
+      - subscription_db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subscription_user -d subscription_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - edunex-platform-network
+    restart: unless-stopped
+
+volumes:
+  subscription_db_data:
+    driver: local
+
+networks:
+  edunex-platform-network:
+    driver: bridge
