@@ -35,6 +35,10 @@ public class SubscriptionController {
     private final SubscriptionService subscriptionService;
     private final AuthService authService;
     
+    // Simple request tracking to prevent duplicate setup requests
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> activeSetupRequests = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long REQUEST_TIMEOUT = 30000; // 30 seconds
+    
     @PostMapping("/create")
     @Operation(
         summary = "Create new subscription",
@@ -64,6 +68,78 @@ public class SubscriptionController {
         }
     }
     
+    @PostMapping("/setup")
+    @Operation(
+        summary = "Setup subscription payment method",
+        description = "Create a setup intent for collecting payment method before subscription creation"
+    )
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> setupSubscription(
+            @Valid @RequestBody CreateSubscriptionRequest request,
+            @Parameter(hidden = true) Authentication authentication) {
+        UUID userId = authService.extractUserIdAsUUID(authentication);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Unable to extract user ID from token"));
+        }
+        
+        // Prevent duplicate requests
+        String requestKey = userId + "_" + request.getPlanId();
+        Long existingRequest = activeSetupRequests.get(requestKey);
+        if (existingRequest != null && (System.currentTimeMillis() - existingRequest) < REQUEST_TIMEOUT) {
+            log.warn("Duplicate setup request blocked for user: {} within timeout window", userId);
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(ApiResponse.error("Setup request already in progress. Please wait."));
+        }
+        
+        activeSetupRequests.put(requestKey, System.currentTimeMillis());
+        
+        try {
+            log.info("Setting up subscription for user: {} with plan: {}", userId, request.getPlanId());
+            java.util.Map<String, Object> response = subscriptionService.createSubscriptionSetup(request, userId);
+            return ResponseEntity.ok(ApiResponse.success("Subscription setup created successfully", response));
+        } catch (Exception e) {
+            log.error("Error setting up subscription", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to setup subscription: " + e.getMessage()));
+        } finally {
+            // Clean up after some time to allow retry
+            new Thread(() -> {
+                try {
+                    Thread.sleep(5000); // 5 seconds
+                    activeSetupRequests.remove(requestKey);
+                } catch (InterruptedException ignored) {}
+            }).start();
+        }
+    }
+    
+    @PostMapping("/complete")
+    @Operation(
+        summary = "Complete subscription after payment setup",
+        description = "Complete subscription creation after successful payment method setup"
+    )
+    public ResponseEntity<ApiResponse<UserSubscriptionDto>> completeSubscription(
+            @RequestParam String customerId,
+            @RequestParam UUID planId,
+            @Parameter(hidden = true) Authentication authentication) {
+        UUID userId = authService.extractUserIdAsUUID(authentication);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Unable to extract user ID from token"));
+        }
+        
+        try {
+            log.info("Completing subscription for user: {}", userId);
+            UserSubscriptionDto response = subscriptionService.createSubscriptionAfterSetup(customerId, planId, userId);
+            return ResponseEntity.ok(ApiResponse.success("Subscription completed successfully", response));
+        } catch (Exception e) {
+            log.error("Error completing subscription", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to complete subscription: " + e.getMessage()));
+        }
+    }
+    
+    // Commenting out manual activation - subscriptions should be activated automatically by Stripe webhooks
+    /*
     @PostMapping("/{subscriptionId}/activate")
     @Operation(
         summary = "Activate subscription",
@@ -83,6 +159,7 @@ public class SubscriptionController {
                     .body(ApiResponse.error("Failed to activate subscription: " + e.getMessage()));
         }
     }
+    */
     
     @PostMapping("/{subscriptionId}/cancel")
     @Operation(
@@ -145,5 +222,23 @@ public class SubscriptionController {
         return subscriptionService.getActiveSubscription(userId)
                 .map(subscription -> ResponseEntity.ok(ApiResponse.success("Retrieved active subscription", subscription)))
                 .orElse(ResponseEntity.ok(ApiResponse.success("No active subscription found", null)));
+    }
+    
+    @GetMapping("/debug/{planId}")
+    @Operation(
+        summary = "Debug subscription plan",
+        description = "Debug endpoint to check plan details and Stripe price mapping"
+    )
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> debugPlan(
+            @PathVariable UUID planId) {
+        try {
+            log.info("Debugging plan: {}", planId);
+            java.util.Map<String, Object> debugInfo = subscriptionService.debugPlan(planId);
+            return ResponseEntity.ok(ApiResponse.success("Plan debug info", debugInfo));
+        } catch (Exception e) {
+            log.error("Error debugging plan", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to debug plan: " + e.getMessage()));
+        }
     }
 }

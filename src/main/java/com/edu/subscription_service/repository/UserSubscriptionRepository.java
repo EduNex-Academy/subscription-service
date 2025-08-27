@@ -19,6 +19,9 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     @Query("SELECT us FROM UserSubscription us WHERE us.userId = :userId AND us.status = 'ACTIVE'")
     Optional<UserSubscription> findActiveByUserId(@Param("userId") UUID userId);
     
+    @Query("SELECT us FROM UserSubscription us WHERE us.userId = :userId AND us.status = 'PENDING'")
+    Optional<UserSubscription> findPendingByUserId(@Param("userId") UUID userId);
+    
     Optional<UserSubscription> findByStripeSubscriptionId(String stripeSubscriptionId);
     
     @Query("SELECT us FROM UserSubscription us WHERE us.endDate < :currentTime AND us.status = 'ACTIVE'")
@@ -26,4 +29,7 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     
     @Query("SELECT us FROM UserSubscription us WHERE us.status = :status")
     List<UserSubscription> findByStatus(@Param("status") UserSubscription.SubscriptionStatus status);
+    
+    @Query("SELECT us FROM UserSubscription us WHERE us.userId = :userId AND us.status = :status")
+    List<UserSubscription> findByUserIdAndStatus(@Param("userId") UUID userId, @Param("status") UserSubscription.SubscriptionStatus status);
 }
