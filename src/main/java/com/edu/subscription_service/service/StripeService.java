@@ -331,4 +331,74 @@ public class StripeService {
                     customer.getInvoiceSettings().getDefaultPaymentMethod());
         }
     }
+    
+    public com.stripe.model.InvoiceCollection getBillingHistory(String customerId, int limit) throws StripeException {
+        log.info("Fetching billing history for customer: {}", customerId);
+        
+        var params = com.stripe.param.InvoiceListParams.builder()
+                .setCustomer(customerId)
+                .setLimit((long) limit)
+                .addAllExpand(java.util.Arrays.asList("data.payment_intent", "data.subscription"))
+                .build();
+        
+        return com.stripe.model.Invoice.list(params);
+    }
+    
+    public com.stripe.model.PaymentMethodCollection getPaymentMethods(String customerId) throws StripeException {
+        log.info("Fetching payment methods for customer: {}", customerId);
+        
+        var params = com.stripe.param.PaymentMethodListParams.builder()
+                .setCustomer(customerId)
+                .setType(com.stripe.param.PaymentMethodListParams.Type.CARD)
+                .build();
+        
+        return com.stripe.model.PaymentMethod.list(params);
+    }
+    
+    public SetupIntent createSetupIntent(String customerId) throws StripeException {
+        log.info("Creating setup intent for customer: {}", customerId);
+        
+        SetupIntentCreateParams params = SetupIntentCreateParams.builder()
+                .setCustomer(customerId)
+                .addPaymentMethodType("card")
+                .setUsage(SetupIntentCreateParams.Usage.OFF_SESSION)
+                .build();
+        
+        return SetupIntent.create(params);
+    }
+    
+    public void attachPaymentMethod(String paymentMethodId, String customerId) throws StripeException {
+        log.info("Attaching payment method {} to customer: {}", paymentMethodId, customerId);
+        
+        com.stripe.model.PaymentMethod paymentMethod = com.stripe.model.PaymentMethod.retrieve(paymentMethodId);
+        
+        var params = com.stripe.param.PaymentMethodAttachParams.builder()
+                .setCustomer(customerId)
+                .build();
+        
+        paymentMethod.attach(params);
+    }
+    
+    public void setDefaultPaymentMethod(String customerId, String paymentMethodId) throws StripeException {
+        log.info("Setting default payment method {} for customer: {}", paymentMethodId, customerId);
+        
+        Customer customer = Customer.retrieve(customerId);
+        
+        CustomerUpdateParams updateParams = CustomerUpdateParams.builder()
+                .setInvoiceSettings(
+                        CustomerUpdateParams.InvoiceSettings.builder()
+                                .setDefaultPaymentMethod(paymentMethodId)
+                                .build()
+                )
+                .build();
+        
+        customer.update(updateParams);
+    }
+    
+    public void detachPaymentMethod(String paymentMethodId) throws StripeException {
+        log.info("Detaching payment method: {}", paymentMethodId);
+        
+        com.stripe.model.PaymentMethod paymentMethod = com.stripe.model.PaymentMethod.retrieve(paymentMethodId);
+        paymentMethod.detach();
+    }
 }
