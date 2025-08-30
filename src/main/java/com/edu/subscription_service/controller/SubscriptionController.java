@@ -27,7 +27,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/subscriptions")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
 @Tag(name = "Subscription Management", description = "API endpoints for managing user subscriptions and payments")
 @SecurityRequirement(name = "bearerAuth")
 public class SubscriptionController {

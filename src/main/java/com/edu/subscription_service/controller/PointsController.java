@@ -28,7 +28,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/points")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
 @Tag(name = "Points Management", description = "API endpoints for managing user points and rewards")
 @SecurityRequirement(name = "bearerAuth")
 public class PointsController {

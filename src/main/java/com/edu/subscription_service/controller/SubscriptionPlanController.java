@@ -18,7 +18,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/subscription-plans")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
 @Tag(name = "Subscription Plans", description = "Public API endpoints for browsing available subscription plans")
 public class SubscriptionPlanController {
     
