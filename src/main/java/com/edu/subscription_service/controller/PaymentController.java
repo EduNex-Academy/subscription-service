@@ -38,7 +38,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1/payments")
 @RequiredArgsConstructor
 @Slf4j
-@CrossOrigin(origins = "*")
 @Tag(name = "Payment Management", description = "API endpoints for payment processing with Stripe")
 @SecurityRequirement(name = "bearerAuth")
 public class PaymentController {
