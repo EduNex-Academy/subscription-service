@@ -7,10 +7,16 @@ CREATE TABLE subscription_plans (
     currency VARCHAR(3) DEFAULT 'USD',
     points_awarded INTEGER NOT NULL,      -- Points given when subscribing
     stripe_price_id VARCHAR(255),         -- Stripe price ID
-    features TEXT[],                      -- Array of features
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Plan Features (for JPA @ElementCollection)
+CREATE TABLE plan_features (
+    plan_id UUID NOT NULL REFERENCES subscription_plans(id) ON DELETE CASCADE,
+    feature VARCHAR(255) NOT NULL,
+    PRIMARY KEY (plan_id, feature)
 );
 
 -- User Subscriptions
@@ -102,10 +108,43 @@ CREATE INDEX idx_subscription_history_user_id ON subscription_history(user_id);
 CREATE INDEX idx_webhook_events_stripe_event_id ON webhook_events(stripe_event_id);
 
 -- Insert default subscription plans
-INSERT INTO subscription_plans (name, billing_cycle, price, points_awarded, features, stripe_price_id) VALUES
-('Basic', 'MONTHLY', 9.99, 100, ARRAY['Access to basic courses', '5 downloads per month', 'Email support'], 'price_basic_monthly'),
-('Basic', 'YEARLY', 99.99, 1200, ARRAY['Access to basic courses', '5 downloads per month', 'Email support'], 'price_basic_yearly'),
-('Plus', 'MONTHLY', 19.99, 250, ARRAY['Access to all courses', '20 downloads per month', 'Priority support', 'Offline viewing'], 'price_plus_monthly'),
-('Plus', 'YEARLY', 199.99, 3000, ARRAY['Access to all courses', '20 downloads per month', 'Priority support', 'Offline viewing'], 'price_plus_yearly'),
-('Pro', 'MONTHLY', 39.99, 500, ARRAY['Access to all courses', 'Unlimited downloads', '24/7 support', 'Offline viewing', 'Certificate of completion'], 'price_pro_monthly'),
-('Pro', 'YEARLY', 399.99, 6000, ARRAY['Access to all courses', 'Unlimited downloads', '24/7 support', 'Offline viewing', 'Certificate of completion'], 'price_pro_yearly');
+INSERT INTO subscription_plans (id, name, billing_cycle, price, points_awarded, stripe_price_id) VALUES
+('550e8400-e29b-41d4-a716-446655440001', 'Basic', 'MONTHLY', 9.99,  100, 'price_1RzKdTKFa3CiRyg4CJQnMisH'),
+('550e8400-e29b-41d4-a716-446655440002', 'Basic', 'YEARLY', 99.99, 1200,'price_1RzKdxKFa3CiRyg4nsnhygau'),
+('550e8400-e29b-41d4-a716-446655440003', 'Plus', 'MONTHLY', 19.99, 250,'price_1RzKebKFa3CiRyg4E8UjPaM0'),
+('550e8400-e29b-41d4-a716-446655440004', 'Plus', 'YEARLY', 199.99, 3000,'price_1RzKenKFa3CiRyg4ITmcOKpr'),
+('550e8400-e29b-41d4-a716-446655440005', 'Pro', 'MONTHLY', 39.99, 500,'price_1RzKfBKFa3CiRyg4sPXz8gPA'),
+('550e8400-e29b-41d4-a716-446655440006', 'Pro', 'YEARLY', 399.99, 6000,'price_1RzKfKKFa3CiRyg4a8IPRvQJ');
+
+-- Insert plan features
+INSERT INTO plan_features (plan_id, feature) VALUES
+-- Basic Monthly
+('550e8400-e29b-41d4-a716-446655440001', 'Access to basic courses'),
+('550e8400-e29b-41d4-a716-446655440001', '5 downloads per month'),
+('550e8400-e29b-41d4-a716-446655440001', 'Email support'),
+-- Basic Yearly
+('550e8400-e29b-41d4-a716-446655440002', 'Access to basic courses'),
+('550e8400-e29b-41d4-a716-446655440002', '5 downloads per month'),
+('550e8400-e29b-41d4-a716-446655440002', 'Email support'),
+-- Plus Monthly
+('550e8400-e29b-41d4-a716-446655440003', 'Access to all courses'),
+('550e8400-e29b-41d4-a716-446655440003', '20 downloads per month'),
+('550e8400-e29b-41d4-a716-446655440003', 'Priority support'),
+('550e8400-e29b-41d4-a716-446655440003', 'Offline viewing'),
+-- Plus Yearly
+('550e8400-e29b-41d4-a716-446655440004', 'Access to all courses'),
+('550e8400-e29b-41d4-a716-446655440004', '20 downloads per month'),
+('550e8400-e29b-41d4-a716-446655440004', 'Priority support'),
+('550e8400-e29b-41d4-a716-446655440004', 'Offline viewing'),
+-- Pro Monthly
+('550e8400-e29b-41d4-a716-446655440005', 'Access to all courses'),
+('550e8400-e29b-41d4-a716-446655440005', 'Unlimited downloads'),
+('550e8400-e29b-41d4-a716-446655440005', '24/7 support'),
+('550e8400-e29b-41d4-a716-446655440005', 'Offline viewing'),
+('550e8400-e29b-41d4-a716-446655440005', 'Certificate of completion'),
+-- Pro Yearly
+('550e8400-e29b-41d4-a716-446655440006', 'Access to all courses'),
+('550e8400-e29b-41d4-a716-446655440006', 'Unlimited downloads'),
+('550e8400-e29b-41d4-a716-446655440006', '24/7 support'),
+('550e8400-e29b-41d4-a716-446655440006', 'Offline viewing'),
+('550e8400-e29b-41d4-a716-446655440006', 'Certificate of completion');
