@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SubscriptionEvent {
-    private Long userId;
+    private String userId;
     private String subscriptionId;
     private String eventType;   // e.g., SUBSCRIPTION_RENEWAL
     private String timestamp;
