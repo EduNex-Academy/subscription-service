@@ -38,6 +38,7 @@ public class SubscriptionService {
     private final StripeService stripeService;
     private final PointsService pointsService;
     private final ModelMapper modelMapper;
+    private final SubscriptionEventProducer eventProducer;
     
     @Transactional
     public PaymentIntentResponse createSubscription(UUID userId, CreateSubscriptionRequest request) throws StripeException {
@@ -107,7 +108,16 @@ public class SubscriptionService {
         // Create database record as a MIRROR/LOG of Stripe subscription
         UserSubscription dbSubscription = createDatabaseSubscriptionRecord(stripeSubscription, plan, userId);
         log.info("📝 Database subscription record created as log: {}", dbSubscription.getId());
-        
+
+        //Created kafka producer event
+        SubscriptionEvent event = new SubscriptionEvent(
+                userId.toString(),
+                dbSubscription.getId().toString(),
+                "SUBSCRIPTION_CREATED",
+                "Subscription created for plan: " + plan.getName()
+        );
+        eventProducer.sendEvent(event);
+
         // Extract payment information from Stripe subscription
         PaymentIntentResponse paymentResponse = extractPaymentIntentFromSubscription(stripeSubscription, dbSubscription.getId());
         
