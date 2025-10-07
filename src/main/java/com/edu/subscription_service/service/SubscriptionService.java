@@ -449,10 +449,21 @@ public class SubscriptionService {
                 log.info("🎯 Cancelling in Stripe: {}", subscription.getStripeSubscriptionId());
                 stripeService.cancelSubscription(subscription.getStripeSubscriptionId());
                 log.info("✅ Successfully cancelled in Stripe");
-                
+
+                SubscriptionEvent event = new SubscriptionEvent(
+                        subscription.getUserId().toString(),
+                        subscription.getId().toString(),
+                        "SUBSCRIPTION_CANCELLED",
+                        "Your subscription for plan " + subscription.getPlan().getName() + " has been cancelled."
+                );
+                eventProducer.sendEvent(event);
+                log.info("📨 Kafka event for cancellation sent successfully.");
                 // The webhook will handle updating our database
                 log.info("📡 Webhook will update database status automatically");
-                
+
+
+
+
             } catch (StripeException e) {
                 log.error("❌ Failed to cancel subscription in Stripe", e);
                 throw e;
