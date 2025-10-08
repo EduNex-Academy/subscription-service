@@ -113,11 +113,13 @@ public class SubscriptionService {
 
         //Created kafka producer event
         SubscriptionEvent event = new SubscriptionEvent(
-                userId.toString(),
-                dbSubscription.getId().toString(),
-                "SUBSCRIPTION_CREATED",
-                "Subscription created for plan: " + plan.getName()
+                userId.toString(),                            // userId
+                dbSubscription.getId().toString(),           // subscriptionId
+                "SUBSCRIPTION_CREATED",                       // eventType
+                "Subscription created for plan: " + plan.getName(), // message
+                "INFO"                                       // notificationType
         );
+
         eventProducer.sendEvent(event);
 
         // Extract payment information from Stripe subscription
@@ -451,11 +453,13 @@ public class SubscriptionService {
                 log.info("✅ Successfully cancelled in Stripe");
 
                 SubscriptionEvent event = new SubscriptionEvent(
-                        subscription.getUserId().toString(),
-                        subscription.getId().toString(),
-                        "SUBSCRIPTION_CANCELLED",
-                        "Your subscription for plan " + subscription.getPlan().getName() + " has been cancelled."
+                        subscription.getUserId().toString(),                             // userId
+                        subscription.getId().toString(),                                 // subscriptionId
+                        "SUBSCRIPTION_CANCELLED",                                        // eventType
+                        "Your subscription for plan " + subscription.getPlan().getName() + " has been cancelled.", // message
+                        "INFO"                                                           // notificationType
                 );
+
                 eventProducer.sendEvent(event);
                 log.info("📨 Kafka event for cancellation sent successfully.");
                 // The webhook will handle updating our database

@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 public class SubscriptionEvent {
     private String userId;
     private String subscriptionId;
-    private String eventType;   // e.g., SUBSCRIPTION_RENEWAL
-    private String timestamp;
+    private String eventType;
+    private String message;
+    private String notificationType;
 }
