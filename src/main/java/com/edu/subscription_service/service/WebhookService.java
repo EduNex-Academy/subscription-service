@@ -1,20 +1,23 @@
 package com.edu.subscription_service.service;
 
-import com.edu.subscription_service.entity.Payment;
 import com.edu.subscription_service.entity.UserSubscription;
+import com.edu.subscription_service.entity.SubscriptionPlan;
 import com.edu.subscription_service.repository.UserSubscriptionRepository;
 import com.stripe.model.Event;
 import com.stripe.model.Invoice;
-import com.stripe.model.PaymentIntent;
 import com.stripe.model.Subscription;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,491 +26,571 @@ import java.util.UUID;
 public class WebhookService {
     
     private final UserSubscriptionRepository subscriptionRepository;
-    private final StripeService stripeService;
     private final PointsService pointsService;
+    private final InstructorPayoutService instructorPayoutService;
+    private final SubscriptionPlanService subscriptionPlanService;
     
     @Transactional
     public void handleStripeEvent(Event event) {
-        log.info("Processing Stripe event: {} with ID: {}", event.getType(), event.getId());
+        log.info("🔄 [WEBHOOK-V2] Processing Stripe event: {} with ID: {}", event.getType(), event.getId());
         
         try {
             switch (event.getType()) {
-                // Customer events
-                case "customer.created":
-                    handleCustomerCreated(event);
-                    break;
-                case "customer.updated":
-                    handleCustomerUpdated(event);
-                    break;
-                    
-                // Payment events
-                case "payment_intent.succeeded":
-                    handlePaymentIntentSucceeded(event);
-                    break;
-                case "payment_intent.payment_failed":
-                    handlePaymentIntentFailed(event);
-                    break;
-                    
-                // Invoice events (for renewals)
-                case "invoice.payment_succeeded":
-                    handleInvoicePaymentSucceeded(event);
-                    break;
-                case "invoice.payment_failed":
-                    handleInvoicePaymentFailed(event);
-                    break;
-                case "invoice.created":
-                    handleInvoiceCreated(event);
-                    break;
-                    
-                // Subscription events - MOST IMPORTANT for Stripe-first approach
                 case "customer.subscription.created":
+                    log.info("🎯 [WEBHOOK-V2] Handling subscription created");
                     handleSubscriptionCreated(event);
                     break;
+                    
                 case "customer.subscription.updated":
+                    log.info("🎯 [WEBHOOK-V2] Handling subscription updated");
                     handleSubscriptionUpdated(event);
                     break;
+
                 case "customer.subscription.deleted":
+                    log.info("🎯 [WEBHOOK-V2] Handling subscription deleted");
                     handleSubscriptionDeleted(event);
                     break;
                     
+                case "invoice.payment_succeeded":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice payment succeeded");
+                    handleInvoicePaymentSucceeded(event);
+                    break;
+
+                case "invoice.payment_failed":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice payment failed");
+                    handleInvoicePaymentFailed(event);
+                    break;
+
+                case "invoice_payment.paid":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice_payment.paid - THIS IS THE NEW HANDLER!");
+                    handleInvoicePaymentPaid(event);
+                    break;
+                    
+                case "setup_intent.created":
+                    log.info("🎯 [WEBHOOK-V2] Handling setup intent created");
+                    handleSetupIntentCreated(event);
+                    break;
+                    
+                case "setup_intent.succeeded":
+                    log.info("🎯 [WEBHOOK-V2] Handling setup intent succeeded");
+                    handleSetupIntentSucceeded(event);
+                    break;
+                    
+                case "payment_method.attached":
+                    log.info("🎯 [WEBHOOK-V2] Handling payment method attached");
+                    handlePaymentMethodAttached(event);
+                    break;
+                    
+                case "charge.succeeded":
+                    log.info("🎯 [WEBHOOK-V2] Handling charge succeeded");
+                    handleChargeSucceeded(event);
+                    break;
+                    
+                case "payment_intent.succeeded":
+                    log.info("🎯 [WEBHOOK-V2] Handling payment intent succeeded");
+                    handlePaymentIntentSucceeded(event);
+                    break;
+                    
+                case "payment_intent.created":
+                    log.info("🎯 [WEBHOOK-V2] Handling payment intent created");
+                    handlePaymentIntentCreated(event);
+                    break;
+                    
+                case "invoice.created":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice created");
+                    handleInvoiceCreated(event);
+                    break;
+                    
+                case "invoice.finalized":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice finalized");
+                    handleInvoiceFinalized(event);
+                    break;
+                    
+                case "invoice.paid":
+                    log.info("🎯 [WEBHOOK-V2] Handling invoice paid");
+                    handleInvoicePaid(event);
+                    break;
+
                 default:
-                    log.info("Unhandled event type: {} - logging for future reference", event.getType());
+                    log.debug("⚠️ [WEBHOOK-V2] Unhandled event type: {} - This event is not critical for subscription processing", event.getType());
             }
             
-            log.info("Successfully processed Stripe event: {}", event.getId());
+            log.info("✅ [WEBHOOK-V2] Successfully processed Stripe event: {} ({})", event.getType(), event.getId());
             
         } catch (Exception e) {
-            log.error("Error processing webhook event: {}", event.getId(), e);
+            log.error("❌ [WEBHOOK-V2] Error processing webhook event: {} ({})", event.getType(), event.getId(), e);
             throw e;
         }
     }
     
-    private void handleCustomerCreated(Event event) {
-        log.info("Customer created in Stripe - logging event");
-        // Just log the customer creation, don't create anything in our DB yet
-    }
-    
-    private void handleCustomerUpdated(Event event) {
-        log.info("Customer updated in Stripe - logging event");
-        // Log customer updates
-    }
-    
-    private void handleInvoiceCreated(Event event) {
-        log.info("Invoice created in Stripe - logging for billing tracking");
-        // Log invoice creation for billing history
-    }
-    
-    private void handlePaymentIntentSucceeded(Event event) {
-        log.info("Payment intent succeeded");
+    private void handleSubscriptionCreated(Event event) {
+        log.info("=== SUBSCRIPTION CREATED ===");
 
-        try {
-            // Safely get PaymentIntent from event using modern approach
-            PaymentIntent paymentIntent = null;
-            if (event.getDataObjectDeserializer().getObject().isPresent()) {
-                Object obj = event.getDataObjectDeserializer().getObject().get();
-                if (obj instanceof PaymentIntent) {
-                    paymentIntent = (PaymentIntent) obj;
+        Subscription subscription = extractSubscription(event);
+        if (subscription == null) return;
+
+        logSubscriptionDetails(subscription);
+        
+        // Before creating new subscription, check if user already has active subscriptions
+        String userIdStr = subscription.getMetadata() != null ?
+                subscription.getMetadata().get("userId") : null;
+        
+        if (userIdStr != null) {
+            UUID userId = UUID.fromString(userIdStr);
+            
+            // Cancel any other active subscriptions for this user to prevent duplicates
+            List<UserSubscription> activeSubscriptions = subscriptionRepository
+                    .findByUserIdAndStatus(userId, UserSubscription.SubscriptionStatus.ACTIVE);
+            
+            for (UserSubscription activeSub : activeSubscriptions) {
+                if (!subscription.getId().equals(activeSub.getStripeSubscriptionId())) {
+                    log.info("⚠️ Found existing active subscription {}, marking as cancelled to prevent duplicates", 
+                             activeSub.getStripeSubscriptionId());
+                    activeSub.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
+                    activeSub.setAutoRenew(false);
+                    subscriptionRepository.save(activeSub);
                 }
             }
-            
-            if (paymentIntent == null) {
-                // Fallback: retrieve from Stripe API with error handling
-                String paymentIntentId = extractPaymentIntentId(event);
-                if (paymentIntentId != null) {
-                    try {
-                        paymentIntent = stripeService.getPaymentIntent(paymentIntentId);
-                    } catch (Exception e) {
-                        log.warn("Could not retrieve PaymentIntent {} from Stripe API: {}", paymentIntentId, e.getMessage());
-                        // Continue without PaymentIntent - we can still log the event
-                    }
-                }
-            }
-            
-            if (paymentIntent == null) {
-                log.warn("Failed to get PaymentIntent from event: {} - logging event anyway", event.getId());
-                return;
-            }
+        }
+        
+        syncSubscriptionToDatabase(subscription);
 
-            log.info("Payment succeeded: {}", paymentIntent.getId());
-            log.debug("PaymentIntent metadata: {}", paymentIntent.getMetadata());
-
-            // Update payment status
-            try {
-                stripeService.updatePaymentStatus(paymentIntent.getId(), Payment.PaymentStatus.COMPLETED, null);
-                log.info("Updated payment status to COMPLETED for payment intent: {}", paymentIntent.getId());
-            } catch (Exception e) {
-                log.error("Failed to update payment status", e);
-            }
-
-            // Handle subscription activation
-            handleSubscriptionActivation(paymentIntent);
-
-        } catch (Exception e) {
-            log.error("Error handling payment intent succeeded event: {}", event.getId(), e);
+        // Award points if subscription is active immediately
+        if ("active".equals(subscription.getStatus())) {
+            awardPointsForNewSubscription(subscription);
         }
     }
-    
-    private void handleSubscriptionActivation(PaymentIntent paymentIntent) {
-        String userId = paymentIntent.getMetadata().get("userId");
-        log.info("UserId from metadata: {}", userId);
 
-        if (userId == null) {
-            log.warn("No userId found in PaymentIntent metadata, checking for subscriptions by customer");
+    private void handleSubscriptionUpdated(Event event) {
+        log.info("=== SUBSCRIPTION UPDATED ===");
+
+        Subscription subscription = extractSubscription(event);
+        if (subscription == null) return;
+
+        logSubscriptionDetails(subscription);
+
+        UserSubscription dbSubscription = subscriptionRepository
+                .findByStripeSubscriptionId(subscription.getId())
+                .orElse(null);
+
+        if (dbSubscription == null) {
+            log.warn("DB subscription not found, creating new record");
+            syncSubscriptionToDatabase(subscription);
             return;
         }
 
-        try {
-            UUID userUuid = UUID.fromString(userId);
-            log.info("Looking for pending subscription for user: {}", userUuid);
+        UserSubscription.SubscriptionStatus oldStatus = dbSubscription.getStatus();
+        updateSubscriptionFromStripe(dbSubscription, subscription);
 
-            subscriptionRepository.findPendingByUserId(userUuid)
-                    .ifPresentOrElse(subscription -> {
-                        log.info("Found pending subscription: {} with status: {}", subscription.getId(), subscription.getStatus());
-                        try {
-                            activateUserSubscription(subscription);
-                            log.info("Successfully activated subscription: {}", subscription.getId());
-                        } catch (Exception e) {
-                            log.error("Failed to activate subscription: {}", subscription.getId(), e);
-                        }
-                    }, () -> log.warn("No pending subscription found for user: {}", userUuid));
-        } catch (IllegalArgumentException e) {
-            log.error("Invalid UUID format for userId: {}", userId, e);
-        } catch (Exception e) {
-            log.error("Error processing subscription activation for user: {}", userId, e);
-        }
-    }
-    
-    private void activateUserSubscription(UserSubscription subscription) {
-        subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
-        subscription.setStartDate(LocalDateTime.now());
-        subscriptionRepository.save(subscription);
-        log.info("Updated subscription status to ACTIVE for subscription: {}", subscription.getId());
-
-        // Award points for subscription
-        try {
-            pointsService.awardPoints(
-                    subscription.getUserId(),
-                    subscription.getPlan().getPointsAwarded(),
-                    "Subscribed to " + subscription.getPlan().getName() + " plan",
-                    "SUBSCRIPTION",
-                    subscription.getId()
-            );
-            log.info("Points awarded successfully for subscription: {}", subscription.getId());
-        } catch (Exception e) {
-            log.error("Failed to award points for subscription: {}", subscription.getId(), e);
-        }
-    }
-    
-    private void handlePaymentIntentFailed(Event event) {
-        log.info("Payment intent failed");
-        
-        try {
-            PaymentIntent paymentIntent = null;
-            if (event.getDataObjectDeserializer().getObject().isPresent()) {
-                Object obj = event.getDataObjectDeserializer().getObject().get();
-                if (obj instanceof PaymentIntent) {
-                    paymentIntent = (PaymentIntent) obj;
-                }
-            }
-            
-            if (paymentIntent == null) {
-                String paymentIntentId = extractPaymentIntentId(event);
-                if (paymentIntentId != null) {
-                    paymentIntent = stripeService.getPaymentIntent(paymentIntentId);
-                }
-            }
-            
-            if (paymentIntent != null) {
-                log.info("Payment failed: {}", paymentIntent.getId());
-                String failureReason = paymentIntent.getLastPaymentError() != null 
-                    ? paymentIntent.getLastPaymentError().getMessage() 
-                    : "Payment failed";
-                stripeService.updatePaymentStatus(paymentIntent.getId(), Payment.PaymentStatus.FAILED, failureReason);
-                
-                // Mark related subscription as failed if it's still pending
-                String userId = paymentIntent.getMetadata().get("userId");
-                if (userId != null) {
-                    try {
-                        UUID userUuid = UUID.fromString(userId);
-                        subscriptionRepository.findPendingByUserId(userUuid)
-                                .ifPresent(subscription -> {
-                                    subscription.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
-                                    subscriptionRepository.save(subscription);
-                                    log.info("Marked subscription as cancelled due to payment failure: {}", subscription.getId());
-                                });
-                    } catch (Exception e) {
-                        log.error("Error handling subscription for failed payment: {}", userId, e);
-                    }
-                }
-            } else {
-                log.error("Failed to get PaymentIntent from failed payment event: {}", event.getId());
-            }
-        } catch (Exception e) {
-            log.error("Error handling payment intent failed event: {}", event.getId(), e);
-        }
-    }
-    
-    private void handleInvoicePaymentSucceeded(Event event) {
-        log.info("Invoice payment succeeded - handling recurring payment");
-        
-        try {
-            Invoice invoice = null;
-            if (event.getDataObjectDeserializer().getObject().isPresent()) {
-                Object obj = event.getDataObjectDeserializer().getObject().get();
-                if (obj instanceof Invoice) {
-                    invoice = (Invoice) obj;
-                }
-            }
-            
-            if (invoice != null && invoice.getSubscription() != null) {
-                log.info("Processing successful recurring payment for subscription: {}", invoice.getSubscription());
-                
-                // Find and update subscription
-                subscriptionRepository.findByStripeSubscriptionId(invoice.getSubscription())
-                        .ifPresent(userSubscription -> {
-                            if (userSubscription.getStatus() != UserSubscription.SubscriptionStatus.ACTIVE) {
-                                userSubscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
-                                
-                                // Extend end date based on billing cycle
-                                LocalDateTime newEndDate = calculateNewEndDate(userSubscription);
-                                userSubscription.setEndDate(newEndDate);
-                                
-                                subscriptionRepository.save(userSubscription);
-                                log.info("Renewed subscription: {} until {}", userSubscription.getId(), newEndDate);
-                                
-                                // Award points for renewal
-                                try {
-                                    pointsService.awardPoints(
-                                            userSubscription.getUserId(),
-                                            userSubscription.getPlan().getPointsAwarded(),
-                                            "Subscription renewed for " + userSubscription.getPlan().getName() + " plan",
-                                            "SUBSCRIPTION_RENEWAL",
-                                            userSubscription.getId()
-                                    );
-                                    log.info("Points awarded for subscription renewal: {}", userSubscription.getId());
-                                } catch (Exception e) {
-                                    log.error("Failed to award points for subscription renewal: {}", userSubscription.getId(), e);
-                                }
-                            }
-                        });
-            }
-        } catch (Exception e) {
-            log.error("Error handling invoice payment succeeded event: {}", event.getId(), e);
-        }
-    }
-    
-    private void handleInvoicePaymentFailed(Event event) {
-        log.info("Invoice payment failed - handling failed recurring payment");
-        
-        try {
-            Invoice invoice = null;
-            if (event.getDataObjectDeserializer().getObject().isPresent()) {
-                Object obj = event.getDataObjectDeserializer().getObject().get();
-                if (obj instanceof Invoice) {
-                    invoice = (Invoice) obj;
-                }
-            }
-            
-            if (invoice != null && invoice.getSubscription() != null) {
-                log.info("Processing failed recurring payment for subscription: {}", invoice.getSubscription());
-                
-                subscriptionRepository.findByStripeSubscriptionId(invoice.getSubscription())
-                        .ifPresent(userSubscription -> {
-                            // Mark as past due but don't cancel immediately
-                            userSubscription.setStatus(UserSubscription.SubscriptionStatus.EXPIRED);
-                            subscriptionRepository.save(userSubscription);
-                            log.info("Marked subscription as past due: {}", userSubscription.getId());
-                        });
-            }
-        } catch (Exception e) {
-            log.error("Error handling invoice payment failed event: {}", event.getId(), e);
-        }
-    }
-    
-    private void handleSubscriptionCreated(Event event) {
-        log.info("=== STRIPE SUBSCRIPTION CREATED ===");
-        
-        try {
-            // Use the proper way to get Stripe objects from events
-            Subscription subscription = getStripeSubscriptionFromEvent(event);
-            
-            if (subscription != null) {
-                log.info("New Stripe subscription created:");
-                logStripeSubscriptionDetails(subscription, "CREATED");
-                
-                // Mirror this in our database as a log/record
-                syncSubscriptionToDatabase(subscription, "CREATED_FROM_STRIPE");
-                
-                // If subscription is active immediately, award points
-                if ("active".equals(subscription.getStatus())) {
-                    awardPointsForSubscription(subscription, "NEW_SUBSCRIPTION");
-                }
-                
-            } else {
-                log.error("Failed to get Subscription from created event: {}", event.getId());
-            }
-        } catch (Exception e) {
-            log.error("Error handling subscription created event: {}", event.getId(), e);
-        }
-    }
-    
-    private void handleSubscriptionUpdated(Event event) {
-        log.info("=== STRIPE SUBSCRIPTION UPDATED ===");
-        
-        try {
-            Subscription subscription = getStripeSubscriptionFromEvent(event);
-            
-            if (subscription != null) {
-                log.info("Stripe subscription updated:");
-                logStripeSubscriptionDetails(subscription, "UPDATED");
-                
-                // Sync the updated state to our database
-                syncSubscriptionToDatabase(subscription, "UPDATED_FROM_STRIPE");
-                
-                // Check if subscription became active (payment succeeded)
-                if ("active".equals(subscription.getStatus())) {
-                    UserSubscription dbSubscription = subscriptionRepository
-                            .findByStripeSubscriptionId(subscription.getId())
-                            .orElse(null);
-                    
-                    if (dbSubscription != null && 
-                        dbSubscription.getStatus() != UserSubscription.SubscriptionStatus.ACTIVE) {
-                        awardPointsForSubscription(subscription, "SUBSCRIPTION_ACTIVATED");
-                    }
-                }
-                
-            } else {
-                log.error("Failed to get Subscription from updated event: {}", event.getId());
-            }
-        } catch (Exception e) {
-            log.error("Error handling subscription updated event: {}", event.getId(), e);
+        // Award points when subscription becomes active for the first time
+        if ("active".equals(subscription.getStatus()) &&
+            oldStatus != UserSubscription.SubscriptionStatus.ACTIVE) {
+            awardPointsForNewSubscription(subscription);
         }
     }
     
     private void handleSubscriptionDeleted(Event event) {
-        log.info("=== STRIPE SUBSCRIPTION CANCELLED ===");
-        
-        try {
-            Subscription subscription = getStripeSubscriptionFromEvent(event);
-            
-            if (subscription != null) {
-                log.info("Stripe subscription cancelled:");
-                logStripeSubscriptionDetails(subscription, "CANCELLED");
-                
-                // Sync cancellation to our database
-                syncSubscriptionToDatabase(subscription, "CANCELLED_FROM_STRIPE");
-                
-            } else {
-                log.error("Failed to get Subscription from deleted event: {}", event.getId());
-            }
-        } catch (Exception e) {
-            log.error("Error handling subscription deleted event: {}", event.getId(), e);
-        }
+        log.info("=== SUBSCRIPTION DELETED ===");
+
+        Subscription subscription = extractSubscription(event);
+        if (subscription == null) return;
+
+        subscriptionRepository.findByStripeSubscriptionId(subscription.getId())
+                .ifPresent(dbSubscription -> {
+                    dbSubscription.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
+                    dbSubscription.setAutoRenew(false);
+                    subscriptionRepository.save(dbSubscription);
+                    log.info("Cancelled subscription: {}", dbSubscription.getId());
+                    
+                    // Additional cleanup: cancel any other PENDING subscriptions for the same user
+                    // to prevent duplicate active subscriptions when user creates a new one
+                    UUID userId = dbSubscription.getUserId();
+                    List<UserSubscription> pendingSubscriptions = subscriptionRepository
+                            .findByUserIdAndStatus(userId, UserSubscription.SubscriptionStatus.PENDING);
+                    
+                    for (UserSubscription pendingSub : pendingSubscriptions) {
+                        if (!pendingSub.getId().equals(dbSubscription.getId())) {
+                            pendingSub.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
+                            subscriptionRepository.save(pendingSub);
+                            log.info("Cleaned up pending subscription: {}", pendingSub.getId());
+                        }
+                    }
+                });
     }
     
-    private Subscription getStripeSubscriptionFromEvent(Event event) {
+    private void handleInvoicePaymentSucceeded(Event event) {
+        log.info("=== INVOICE PAYMENT SUCCEEDED (Renewal) ===");
+
+        Invoice invoice = extractInvoice(event);
+        if (invoice == null || invoice.getSubscription() == null) return;
+
+        String subscriptionId = invoice.getSubscription();
+        log.info("Processing renewal payment for subscription: {}", subscriptionId);
+
+        subscriptionRepository.findByStripeSubscriptionId(subscriptionId)
+                .ifPresent(dbSubscription -> {
+                    // Stripe automatically handles the renewal dates
+                    // We just need to update our DB and award points
+
+                    try {
+                        // Fetch latest subscription data from Stripe
+                        Subscription stripeSubscription = Subscription.retrieve(subscriptionId);
+                        updateSubscriptionFromStripe(dbSubscription, stripeSubscription);
+
+                        // Award points for renewal
+                        pointsService.awardPoints(
+                                dbSubscription.getUserId(),
+                                dbSubscription.getPlan().getPointsAwarded(),
+                                "Subscription renewed: " + dbSubscription.getPlan().getName(),
+                                "SUBSCRIPTION_RENEWAL",
+                                dbSubscription.getId()
+                        );
+
+                        // Record instructor revenue share
+                        if (invoice.getAmountPaid() != null && invoice.getAmountPaid() > 0) {
+                            BigDecimal subscriptionRevenue = new BigDecimal(invoice.getAmountPaid()).divide(new BigDecimal(100)); // Convert cents to dollars
+                            instructorPayoutService.recordSubscriptionRevenueShare(dbSubscription.getId(), subscriptionRevenue);
+                        }
+
+                        log.info("✅ Subscription renewed, points awarded, and instructor earnings recorded: {}", dbSubscription.getId());
+
+                    } catch (Exception e) {
+                        log.error("Error processing renewal for subscription: {}", subscriptionId, e);
+                    }
+                });
+    }
+    
+    private void handleInvoicePaymentFailed(Event event) {
+        log.info("=== INVOICE PAYMENT FAILED ===");
+
+        Invoice invoice = extractInvoice(event);
+        if (invoice == null || invoice.getSubscription() == null) return;
+
+        subscriptionRepository.findByStripeSubscriptionId(invoice.getSubscription())
+                .ifPresent(dbSubscription -> {
+                    dbSubscription.setStatus(UserSubscription.SubscriptionStatus.EXPIRED);
+                    subscriptionRepository.save(dbSubscription);
+                    log.info("Marked subscription as expired due to payment failure: {}", dbSubscription.getId());
+                });
+    }
+
+    private void handleInvoicePaymentPaid(Event event) {
+        log.info("=== INVOICE PAYMENT PAID ===");
+
+        Invoice invoice = extractInvoice(event);
+        if (invoice == null || invoice.getSubscription() == null) return;
+
+        String subscriptionId = invoice.getSubscription();
+        log.info("Processing payment confirmation for subscription: {}", subscriptionId);
+
+        subscriptionRepository.findByStripeSubscriptionId(subscriptionId)
+                .ifPresent(dbSubscription -> {
+                    try {
+                        // Fetch latest subscription data from Stripe
+                        Subscription stripeSubscription = Subscription.retrieve(subscriptionId);
+                        updateSubscriptionFromStripe(dbSubscription, stripeSubscription);
+
+                        // Check if this is the first payment for this subscription
+                        boolean isFirstPayment = dbSubscription.getStatus() != UserSubscription.SubscriptionStatus.ACTIVE;
+
+                        // Award points for payment
+                        if (dbSubscription.getPlan() != null) {
+                            String reason = isFirstPayment ? 
+                                "New subscription: " + dbSubscription.getPlan().getName() :
+                                "Subscription payment confirmed: " + dbSubscription.getPlan().getName();
+                                
+                            pointsService.awardPoints(
+                                    dbSubscription.getUserId(),
+                                    dbSubscription.getPlan().getPointsAwarded(),
+                                    reason,
+                                    isFirstPayment ? "SUBSCRIPTION" : "SUBSCRIPTION_PAYMENT",
+                                    dbSubscription.getId()
+                            );
+                        }
+
+                        // Record instructor revenue share
+                        if (invoice.getAmountPaid() != null && invoice.getAmountPaid() > 0) {
+                            BigDecimal subscriptionRevenue = new BigDecimal(invoice.getAmountPaid()).divide(new BigDecimal(100)); // Convert cents to dollars
+                            instructorPayoutService.recordSubscriptionRevenueShare(dbSubscription.getId(), subscriptionRevenue);
+                        }
+
+                        log.info("✅ Invoice payment processed, points awarded, and instructor earnings recorded: {}", dbSubscription.getId());
+
+                    } catch (Exception e) {
+                        log.error("Error processing payment confirmation for subscription: {}", subscriptionId, e);
+                    }
+                });
+    }
+
+    private void handleSetupIntentCreated(Event event) {
+        log.info("=== SETUP INTENT CREATED ===");
+        log.debug("Setup intent created - no action required, just tracking");
+    }
+
+    private void handleSetupIntentSucceeded(Event event) {
+        log.info("=== SETUP INTENT SUCCEEDED ===");
+        log.debug("Setup intent succeeded - payment method ready for use");
+    }
+
+    private void handlePaymentMethodAttached(Event event) {
+        log.info("=== PAYMENT METHOD ATTACHED ===");
+        log.debug("Payment method attached to customer - ready for subscriptions");
+    }
+
+    private void handleChargeSucceeded(Event event) {
+        log.info("=== CHARGE SUCCEEDED ===");
+        log.debug("Charge succeeded - payment processed successfully");
+    }
+
+    private void handlePaymentIntentSucceeded(Event event) {
+        log.info("=== PAYMENT INTENT SUCCEEDED ===");
+        log.debug("Payment intent succeeded - payment confirmed");
+    }
+
+    private void handlePaymentIntentCreated(Event event) {
+        log.info("=== PAYMENT INTENT CREATED ===");
+        log.debug("Payment intent created - payment process initiated");
+    }
+
+    private void handleInvoiceCreated(Event event) {
+        log.info("=== INVOICE CREATED ===");
+        log.debug("Invoice created for subscription billing");
+    }
+
+    private void handleInvoiceFinalized(Event event) {
+        log.info("=== INVOICE FINALIZED ===");
+        log.debug("Invoice finalized and ready for payment");
+    }
+
+    private void handleInvoicePaid(Event event) {
+        log.info("=== INVOICE PAID ===");
+        
+        Invoice invoice = extractInvoice(event);
+        if (invoice == null || invoice.getSubscription() == null) {
+            log.debug("Invoice paid but no subscription associated");
+            return;
+        }
+
+        String subscriptionId = invoice.getSubscription();
+        log.info("Processing invoice payment for subscription: {}", subscriptionId);
+
+        subscriptionRepository.findByStripeSubscriptionId(subscriptionId)
+                .ifPresent(dbSubscription -> {
+                    try {
+                        // Fetch latest subscription data from Stripe
+                        Subscription stripeSubscription = Subscription.retrieve(subscriptionId);
+                        updateSubscriptionFromStripe(dbSubscription, stripeSubscription);
+
+                        // Award points for payment
+                        if (dbSubscription.getPlan() != null) {
+                            pointsService.awardPoints(
+                                    dbSubscription.getUserId(),
+                                    dbSubscription.getPlan().getPointsAwarded(),
+                                    "Invoice paid: " + dbSubscription.getPlan().getName(),
+                                    "INVOICE_PAYMENT",
+                                    dbSubscription.getId()
+                            );
+                        }
+
+                        // Record instructor revenue share
+                        if (invoice.getAmountPaid() != null && invoice.getAmountPaid() > 0) {
+                            BigDecimal subscriptionRevenue = new BigDecimal(invoice.getAmountPaid()).divide(new BigDecimal(100)); // Convert cents to dollars
+                            instructorPayoutService.recordSubscriptionRevenueShare(dbSubscription.getId(), subscriptionRevenue);
+                        }
+
+                        log.info("✅ Invoice payment processed successfully: {}", dbSubscription.getId());
+
+                    } catch (Exception e) {
+                        log.error("Error processing invoice payment for subscription: {}", subscriptionId, e);
+                    }
+                });
+    }
+
+    private Subscription extractSubscription(Event event) {
         try {
-            // Use the modern way to get objects from Stripe events
-            if (event.getDataObjectDeserializer().getObject().isPresent()) {
-                Object obj = event.getDataObjectDeserializer().getObject().get();
-                if (obj instanceof Subscription) {
-                    return (Subscription) obj;
+            log.info("🔍 Extracting subscription from event: {}", event.getId());
+            
+            // Get the raw JSON data from the event
+            JsonNode eventData = new ObjectMapper().readTree(event.toJson());
+            JsonNode dataObject = eventData.get("data").get("object");
+            
+            if (dataObject == null) {
+                log.error("❌ No data.object found in event {}", event.getId());
+                return null;
+            }
+            
+            // Create a subscription object from the JSON data
+            Subscription subscription = new Subscription();
+            
+            // Extract basic fields
+            if (dataObject.has("id")) {
+                subscription.setId(dataObject.get("id").asText());
+            }
+            if (dataObject.has("status")) {
+                subscription.setStatus(dataObject.get("status").asText());
+            }
+            if (dataObject.has("customer")) {
+                subscription.setCustomer(dataObject.get("customer").asText());
+            }
+            if (dataObject.has("cancel_at_period_end")) {
+                subscription.setCancelAtPeriodEnd(dataObject.get("cancel_at_period_end").asBoolean());
+            }
+            if (dataObject.has("current_period_start")) {
+                subscription.setCurrentPeriodStart(dataObject.get("current_period_start").asLong());
+            }
+            if (dataObject.has("current_period_end")) {
+                subscription.setCurrentPeriodEnd(dataObject.get("current_period_end").asLong());
+            }
+            
+            // Extract metadata
+            if (dataObject.has("metadata")) {
+                JsonNode metadataNode = dataObject.get("metadata");
+                java.util.Map<String, String> metadata = new java.util.HashMap<>();
+                metadataNode.fields().forEachRemaining(entry -> {
+                    metadata.put(entry.getKey(), entry.getValue().asText());
+                });
+                subscription.setMetadata(metadata);
+            }
+            
+            // Extract items (for price information)
+            if (dataObject.has("items") && dataObject.get("items").has("data")) {
+                JsonNode itemsData = dataObject.get("items").get("data");
+                if (itemsData.isArray() && itemsData.size() > 0) {
+                    JsonNode firstItem = itemsData.get(0);
+                    if (firstItem.has("price") && firstItem.get("price").has("id")) {
+                        // Create a subscription item with price info
+                        com.stripe.model.SubscriptionItem item = new com.stripe.model.SubscriptionItem();
+                        com.stripe.model.Price price = new com.stripe.model.Price();
+                        price.setId(firstItem.get("price").get("id").asText());
+                        item.setPrice(price);
+                        
+                        // Set items on subscription
+                        com.stripe.model.SubscriptionItemCollection items = new com.stripe.model.SubscriptionItemCollection();
+                        items.setData(java.util.Arrays.asList(item));
+                        subscription.setItems(items);
+                    }
                 }
             }
             
-            log.warn("Could not deserialize Subscription from event using modern approach: {}", event.getId());
+            log.info("✅ Successfully extracted subscription: {}", subscription.getId());
+            return subscription;
             
         } catch (Exception e) {
-            log.warn("Could not deserialize Subscription from event: {}", event.getId(), e);
-        }
-        return null;
-    }
-    
-    private void logStripeSubscriptionDetails(Subscription subscription, String eventType) {
-        log.info("📋 Stripe Subscription {} Details:", eventType);
-        log.info("   ID: {}", subscription.getId());
-        log.info("   Status: {}", subscription.getStatus());
-        log.info("   Customer: {}", subscription.getCustomer());
-        log.info("   Current Period: {} to {}", 
-                subscription.getCurrentPeriodStart() != null ? 
-                    java.time.Instant.ofEpochSecond(subscription.getCurrentPeriodStart()) : "null",
-                subscription.getCurrentPeriodEnd() != null ? 
-                    java.time.Instant.ofEpochSecond(subscription.getCurrentPeriodEnd()) : "null"
-        );
-        log.info("   Auto Renewal: {}", !subscription.getCancelAtPeriodEnd());
-        
-        if (subscription.getItems() != null && !subscription.getItems().getData().isEmpty()) {
-            log.info("   Price ID: {}", subscription.getItems().getData().get(0).getPrice().getId());
-        }
-        
-        if (subscription.getMetadata() != null) {
-            log.info("   User ID: {}", subscription.getMetadata().get("userId"));
+            log.error("❌ Exception while extracting Subscription from event {}: {}", event.getId(), e.getMessage(), e);
+            return null;
         }
     }
     
-    private void syncSubscriptionToDatabase(Subscription stripeSubscription, String syncReason) {
+    private Invoice extractInvoice(Event event) {
         try {
-            log.info("🔄 Syncing Stripe subscription to database: {} ({})", 
-                    stripeSubscription.getId(), syncReason);
+            log.info("🔍 Extracting invoice from event: {}", event.getId());
             
-            // Find existing record or create new one
-            UserSubscription dbSubscription = subscriptionRepository
-                    .findByStripeSubscriptionId(stripeSubscription.getId())
-                    .orElse(null);
+            // Get the raw JSON data from the event
+            JsonNode eventData = new ObjectMapper().readTree(event.toJson());
+            JsonNode dataObject = eventData.get("data").get("object");
             
-            if (dbSubscription == null) {
-                // Create new record if it doesn't exist
-                String userIdStr = stripeSubscription.getMetadata() != null ? 
-                        stripeSubscription.getMetadata().get("userId") : null;
+            if (dataObject == null) {
+                log.error("❌ No data.object found in event {}", event.getId());
+                return null;
+            }
+            
+            // Create an invoice object from the JSON data
+            Invoice invoice = new Invoice();
+            
+            // Extract basic fields
+            if (dataObject.has("id")) {
+                invoice.setId(dataObject.get("id").asText());
+            }
+            if (dataObject.has("subscription")) {
+                invoice.setSubscription(dataObject.get("subscription").asText());
+            }
+            if (dataObject.has("customer")) {
+                invoice.setCustomer(dataObject.get("customer").asText());
+            }
+            if (dataObject.has("amount_paid")) {
+                invoice.setAmountPaid(dataObject.get("amount_paid").asLong());
+            }
+            if (dataObject.has("status")) {
+                invoice.setStatus(dataObject.get("status").asText());
+            }
+            if (dataObject.has("total")) {
+                invoice.setTotal(dataObject.get("total").asLong());
+            }
+            if (dataObject.has("currency")) {
+                invoice.setCurrency(dataObject.get("currency").asText());
+            }
+            
+            log.info("✅ Successfully extracted invoice: {}", invoice.getId());
+            return invoice;
+            
+        } catch (Exception e) {
+            log.error("❌ Exception while extracting Invoice from event {}: {}", event.getId(), e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    private void syncSubscriptionToDatabase(Subscription stripeSubscription) {
+        try {
+            String userIdStr = stripeSubscription.getMetadata() != null ?
+                    stripeSubscription.getMetadata().get("userId") : null;
+
+            if (userIdStr == null) {
+                log.warn("⚠️ No userId in subscription metadata for subscription: {}", stripeSubscription.getId());
+                return;
+            }
+
+            UUID userId = UUID.fromString(userIdStr);
+            log.info("🔗 Syncing subscription to database for user: {}", userId);
+
+            // Try to find the subscription plan by Stripe price ID
+            SubscriptionPlan plan = null;
+            if (stripeSubscription.getItems() != null && !stripeSubscription.getItems().getData().isEmpty()) {
+                String stripePriceId = stripeSubscription.getItems().getData().get(0).getPrice().getId();
+                log.info("🔍 Looking for plan with Stripe price ID: {}", stripePriceId);
                 
-                if (userIdStr != null) {
-                    UUID userId = UUID.fromString(userIdStr);
-                    dbSubscription = createSubscriptionRecord(stripeSubscription, userId);
+                plan = subscriptionPlanService.findByStripePriceId(stripePriceId).orElse(null);
+                if (plan == null) {
+                    log.warn("⚠️ No subscription plan found for Stripe price ID: {}", stripePriceId);
                 } else {
-                    log.warn("Cannot create DB record - no userId in Stripe subscription metadata");
-                    return;
+                    log.info("✅ Found plan: {} for price ID: {}", plan.getName(), stripePriceId);
                 }
             }
+
+            UserSubscription dbSubscription = new UserSubscription();
+            dbSubscription.setUserId(userId);
+            dbSubscription.setPlan(plan); // This could be null if plan not found
+            dbSubscription.setStripeSubscriptionId(stripeSubscription.getId());
+            dbSubscription.setStripeCustomerId(stripeSubscription.getCustomer());
+            dbSubscription.setStatus(mapStripeStatus(stripeSubscription.getStatus()));
+            dbSubscription.setAutoRenew(!stripeSubscription.getCancelAtPeriodEnd());
+
+            // Stripe manages the dates
+            if (stripeSubscription.getCurrentPeriodStart() != null) {
+                dbSubscription.setStartDate(LocalDateTime.ofInstant(
+                        Instant.ofEpochSecond(stripeSubscription.getCurrentPeriodStart()),
+                        ZoneId.systemDefault()));
+            }
+
+            if (stripeSubscription.getCurrentPeriodEnd() != null) {
+                dbSubscription.setEndDate(LocalDateTime.ofInstant(
+                        Instant.ofEpochSecond(stripeSubscription.getCurrentPeriodEnd()),
+                        ZoneId.systemDefault()));
+            }
             
-            // Update the database record to match Stripe
-            updateSubscriptionFromStripe(dbSubscription, stripeSubscription);
-            
+            subscriptionRepository.save(dbSubscription);
+            log.info("✅ Subscription synced to database: {} (Plan: {})", 
+                     dbSubscription.getId(), plan != null ? plan.getName() : "UNKNOWN");
+
         } catch (Exception e) {
-            log.error("Error syncing subscription to database: {}", stripeSubscription.getId(), e);
+            log.error("❌ Error syncing subscription to database", e);
         }
     }
-    
-    private UserSubscription createSubscriptionRecord(Subscription stripeSubscription, UUID userId) {
-        // Note: In a Stripe-first approach, we might not have the plan in our DB yet
-        // For now, we'll create a basic record and update it as needed
-        UserSubscription subscription = new UserSubscription();
-        subscription.setUserId(userId);
-        subscription.setStripeSubscriptionId(stripeSubscription.getId());
-        subscription.setStripeCustomerId(stripeSubscription.getCustomer());
-        subscription.setAutoRenew(!stripeSubscription.getCancelAtPeriodEnd());
-        
-        // Try to find the plan by Stripe price ID
-        if (stripeSubscription.getItems() != null && !stripeSubscription.getItems().getData().isEmpty()) {
-            String stripePriceId = stripeSubscription.getItems().getData().get(0).getPrice().getId();
-            // You could look up the plan here if needed
-            log.info("Subscription uses Stripe price: {}", stripePriceId);
-        }
-        
-        return subscriptionRepository.save(subscription);
-    }
-    
+
     private void updateSubscriptionFromStripe(UserSubscription dbSubscription, Subscription stripeSubscription) {
-        // Map Stripe status to our local status for logging purposes
-        UserSubscription.SubscriptionStatus newStatus = mapStripeStatusToLocal(stripeSubscription.getStatus());
-        UserSubscription.SubscriptionStatus oldStatus = dbSubscription.getStatus();
-        
-        log.info("🔄 Updating DB subscription {} from Stripe: {} → {}", 
-                dbSubscription.getId(), oldStatus, newStatus);
-        
-        dbSubscription.setStatus(newStatus);
+        dbSubscription.setStatus(mapStripeStatus(stripeSubscription.getStatus()));
         dbSubscription.setAutoRenew(!stripeSubscription.getCancelAtPeriodEnd());
         
-        // Update dates based on Stripe subscription
+        // Update dates from Stripe - Stripe is the source of truth
         if (stripeSubscription.getCurrentPeriodStart() != null) {
             dbSubscription.setStartDate(LocalDateTime.ofInstant(
                     Instant.ofEpochSecond(stripeSubscription.getCurrentPeriodStart()), 
@@ -521,49 +604,32 @@ public class WebhookService {
         }
         
         subscriptionRepository.save(dbSubscription);
-        log.info("✅ Database subscription updated successfully");
+        log.info("✅ Subscription updated in database: {}", dbSubscription.getId());
     }
     
-    private void awardPointsForSubscription(Subscription stripeSubscription, String reason) {
+    private void awardPointsForNewSubscription(Subscription stripeSubscription) {
         try {
-            String userIdStr = stripeSubscription.getMetadata() != null ? 
-                    stripeSubscription.getMetadata().get("userId") : null;
-            
-            if (userIdStr != null) {
-                UUID userId = UUID.fromString(userIdStr);
-                
-                // Find the subscription plan to get points
-                UserSubscription dbSubscription = subscriptionRepository
-                        .findByStripeSubscriptionId(stripeSubscription.getId())
-                        .orElse(null);
-                
-                if (dbSubscription != null && dbSubscription.getPlan() != null) {
-                    log.info("🎁 Awarding {} points to user {} for: {}", 
-                            dbSubscription.getPlan().getPointsAwarded(), userId, reason);
-                    
-                    pointsService.awardPoints(
-                            userId,
-                            dbSubscription.getPlan().getPointsAwarded(),
-                            reason + " - " + dbSubscription.getPlan().getName(),
-                            "SUBSCRIPTION",
-                            dbSubscription.getId()
-                    );
-                    
-                    log.info("✅ Points awarded successfully");
-                } else {
-                    log.warn("Cannot award points - subscription plan not found in database");
-                }
-            } else {
-                log.warn("Cannot award points - no userId in Stripe subscription metadata");
-            }
+            subscriptionRepository.findByStripeSubscriptionId(stripeSubscription.getId())
+                    .ifPresent(dbSubscription -> {
+                        if (dbSubscription.getPlan() != null) {
+                            pointsService.awardPoints(
+                                    dbSubscription.getUserId(),
+                                    dbSubscription.getPlan().getPointsAwarded(),
+                                    "New subscription: " + dbSubscription.getPlan().getName(),
+                                    "SUBSCRIPTION",
+                                    dbSubscription.getId()
+                            );
+                            log.info("🎁 Points awarded for new subscription");
+                        }
+                    });
         } catch (Exception e) {
-            log.error("Error awarding points for subscription: {}", stripeSubscription.getId(), e);
+            log.error("Error awarding points for subscription", e);
         }
     }
     
-    private UserSubscription.SubscriptionStatus mapStripeStatusToLocal(String stripeStatus) {
+    private UserSubscription.SubscriptionStatus mapStripeStatus(String stripeStatus) {
         return switch (stripeStatus) {
-            case "active" -> UserSubscription.SubscriptionStatus.ACTIVE;
+            case "active", "trialing" -> UserSubscription.SubscriptionStatus.ACTIVE;
             case "canceled" -> UserSubscription.SubscriptionStatus.CANCELLED;
             case "incomplete", "incomplete_expired" -> UserSubscription.SubscriptionStatus.PENDING;
             case "past_due", "unpaid" -> UserSubscription.SubscriptionStatus.EXPIRED;
@@ -571,28 +637,15 @@ public class WebhookService {
         };
     }
     
-    private LocalDateTime calculateNewEndDate(UserSubscription subscription) {
-        return switch (subscription.getPlan().getBillingCycle()) {
-            case MONTHLY -> subscription.getEndDate().plusMonths(1);
-            case YEARLY -> subscription.getEndDate().plusYears(1);
-        };
-    }
-    
-    private String extractPaymentIntentId(Event event) {
-        try {
-            if (event.getId() != null && event.getId().startsWith("evt_")) {
-                // Extract from event ID - format is usually evt_XXXXoriginalIdXXXX
-                String eventId = event.getId();
-                if (eventId.contains("_")) {
-                    String[] parts = eventId.split("_");
-                    if (parts.length > 1 && parts[1].startsWith("3")) {
-                        return "pi_" + parts[1];
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Could not extract payment intent ID from event: {}", event.getId(), e);
-        }
-        return null;
+    private void logSubscriptionDetails(Subscription subscription) {
+        log.info("Subscription ID: {}", subscription.getId());
+        log.info("Status: {}", subscription.getStatus());
+        log.info("Customer: {}", subscription.getCustomer());
+        log.info("Period: {} to {}",
+                subscription.getCurrentPeriodStart() != null ?
+                    Instant.ofEpochSecond(subscription.getCurrentPeriodStart()) : "null",
+                subscription.getCurrentPeriodEnd() != null ?
+                    Instant.ofEpochSecond(subscription.getCurrentPeriodEnd()) : "null"
+        );
     }
 }

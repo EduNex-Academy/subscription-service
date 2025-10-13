@@ -91,22 +91,27 @@ public class StripeService {
 
     public Customer findCustomerByUserId(UUID userId) throws StripeException {
         try {
+            log.info("🔍 Searching for Stripe customer with userId: {}", userId);
+            
             // Search by metadata using proper parameter format
             Map<String, Object> params = new HashMap<>();
-            params.put("limit", 1);
+            params.put("limit", 100); // Increase limit to search more customers
             
             CustomerCollection customers = Customer.list(params);
             
-            // Filter by metadata since direct metadata search isn't working
+            // Filter by metadata since direct metadata search isn't working properly in Stripe
             for (Customer customer : customers.getData()) {
                 if (customer.getMetadata() != null && 
                     userId.toString().equals(customer.getMetadata().get("userId"))) {
+                    log.info("✅ Found Stripe customer: {} for userId: {}", customer.getId(), userId);
                     return customer;
                 }
             }
+            
+            log.warn("⚠️ No Stripe customer found for userId: {} (searched {} customers)", userId, customers.getData().size());
             return null;
         } catch (Exception e) {
-            log.warn("Error searching for customer by userId: {}", userId, e);
+            log.error("❌ Error searching for customer by userId: {}", userId, e);
             return null;
         }
     }
@@ -333,7 +338,7 @@ public class StripeService {
     }
     
     public com.stripe.model.InvoiceCollection getBillingHistory(String customerId, int limit) throws StripeException {
-        log.info("Fetching billing history for customer: {}", customerId);
+        log.info("📋 Fetching billing history for customer: {} (limit: {})", customerId, limit);
         
         var params = com.stripe.param.InvoiceListParams.builder()
                 .setCustomer(customerId)
@@ -341,18 +346,24 @@ public class StripeService {
                 .addAllExpand(java.util.Arrays.asList("data.payment_intent", "data.subscription"))
                 .build();
         
-        return com.stripe.model.Invoice.list(params);
+        com.stripe.model.InvoiceCollection invoices = com.stripe.model.Invoice.list(params);
+        log.info("✅ Found {} invoices for customer: {}", invoices.getData().size(), customerId);
+        
+        return invoices;
     }
     
     public com.stripe.model.PaymentMethodCollection getPaymentMethods(String customerId) throws StripeException {
-        log.info("Fetching payment methods for customer: {}", customerId);
+        log.info("💳 Fetching payment methods for customer: {}", customerId);
         
         var params = com.stripe.param.PaymentMethodListParams.builder()
                 .setCustomer(customerId)
                 .setType(com.stripe.param.PaymentMethodListParams.Type.CARD)
                 .build();
         
-        return com.stripe.model.PaymentMethod.list(params);
+        com.stripe.model.PaymentMethodCollection paymentMethods = com.stripe.model.PaymentMethod.list(params);
+        log.info("✅ Found {} payment methods for customer: {}", paymentMethods.getData().size(), customerId);
+        
+        return paymentMethods;
     }
     
     public SetupIntent createSetupIntent(String customerId) throws StripeException {

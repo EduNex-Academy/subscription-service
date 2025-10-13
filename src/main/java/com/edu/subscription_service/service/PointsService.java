@@ -3,6 +3,7 @@ package com.edu.subscription_service.service;
 import com.edu.subscription_service.dto.PointsTransactionDto;
 import com.edu.subscription_service.dto.UserPointsWalletDto;
 import com.edu.subscription_service.dto.request.RedeemPointsRequest;
+import com.edu.subscription_service.dto.response.PointsValidationResponse;
 import com.edu.subscription_service.entity.PointsTransaction;
 import com.edu.subscription_service.entity.UserPointsWallet;
 import com.edu.subscription_service.repository.PointsTransactionRepository;
@@ -82,6 +83,73 @@ public class PointsService {
         log.info("Points awarded successfully. New balance: {}", wallet.getTotalPoints());
     }
     
+    /**
+     * Validates if user has enough points for a course resource
+     * This is used by Course Service before allowing access
+     */
+    @Transactional(readOnly = true)
+    public PointsValidationResponse validatePoints(UUID userId, Integer requiredPoints) {
+        log.info("Validating points for user: {} - Required: {}", userId, requiredPoints);
+
+        Optional<UserPointsWallet> walletOpt = walletRepository.findByUserId(userId);
+
+        if (walletOpt.isEmpty()) {
+            log.warn("Wallet not found for user: {}", userId);
+            return PointsValidationResponse.insufficient(0, requiredPoints);
+        }
+
+        UserPointsWallet wallet = walletOpt.get();
+
+        if (wallet.getTotalPoints() >= requiredPoints) {
+            return PointsValidationResponse.sufficient(wallet.getTotalPoints(), requiredPoints);
+        } else {
+            return PointsValidationResponse.insufficient(wallet.getTotalPoints(), requiredPoints);
+        }
+    }
+
+    /**
+     * Deducts points for course resource access
+     * Called by Course Service when user accesses a module or quiz
+     */
+    @Transactional
+    public boolean deductPointsForResource(UUID userId, Integer points, String resourceType, UUID resourceId, String description) {
+        log.info("Deducting {} points from user: {} for {} - {}", points, userId, resourceType, resourceId);
+
+        Optional<UserPointsWallet> walletOpt = walletRepository.findByUserId(userId);
+
+        if (walletOpt.isEmpty()) {
+            log.warn("Wallet not found for user: {}", userId);
+            return false;
+        }
+
+        UserPointsWallet wallet = walletOpt.get();
+
+        if (wallet.getTotalPoints() < points) {
+            log.warn("Insufficient points. Required: {}, Available: {}", points, wallet.getTotalPoints());
+            return false;
+        }
+
+        // Update wallet
+        wallet.setTotalPoints(wallet.getTotalPoints() - points);
+        wallet.setLifetimeSpent(wallet.getLifetimeSpent() + points);
+        walletRepository.save(wallet);
+
+        // Create transaction record
+        PointsTransaction transaction = new PointsTransaction();
+        transaction.setWallet(wallet);
+        transaction.setUserId(userId);
+        transaction.setTransactionType(PointsTransaction.TransactionType.REDEEM);
+        transaction.setPoints(points);
+        transaction.setDescription(description);
+        transaction.setReferenceType(resourceType);
+        transaction.setReferenceId(resourceId);
+
+        transactionRepository.save(transaction);
+        log.info("Points deducted successfully. New balance: {}", wallet.getTotalPoints());
+
+        return true;
+    }
+
     @Transactional
     public boolean redeemPoints(UUID userId, RedeemPointsRequest request) {
         log.info("Redeeming {} points for user: {}", request.getPoints(), userId);
@@ -130,5 +198,11 @@ public class PointsService {
     public Optional<UserPointsWalletDto> getUserWallet(UUID userId) {
         return walletRepository.findByUserId(userId)
                 .map(wallet -> modelMapper.map(wallet, UserPointsWalletDto.class));
+    }
+
+    public Integer getUserPointsBalance(UUID userId) {
+        return walletRepository.findByUserId(userId)
+                .map(UserPointsWallet::getTotalPoints)
+                .orElse(0);
     }
 }
