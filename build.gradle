@@ -46,7 +46,10 @@ dependencies {
 
     //Kafka (Producer + Consumer support)
     implementation 'org.springframework.kafka:spring-kafka'
-	
+
+	// Explicit Hibernate version to fix MetadataProvider issue
+	implementation 'org.hibernate.orm:hibernate-core:6.4.4.Final'
+
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.postgresql:postgresql'

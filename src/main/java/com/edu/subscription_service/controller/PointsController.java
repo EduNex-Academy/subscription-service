@@ -4,6 +4,7 @@ import com.edu.subscription_service.dto.PointsTransactionDto;
 import com.edu.subscription_service.dto.UserPointsWalletDto;
 import com.edu.subscription_service.dto.request.RedeemPointsRequest;
 import com.edu.subscription_service.dto.response.ApiResponse;
+import com.edu.subscription_service.dto.response.PointsValidationResponse;
 import com.edu.subscription_service.service.AuthService;
 import com.edu.subscription_service.service.PointsService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -55,6 +56,71 @@ public class PointsController {
                 .orElse(ResponseEntity.ok(ApiResponse.success("Retrieved user wallet", pointsService.getOrCreateWallet(userId))));
     }
     
+    @GetMapping("/balance")
+    @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN')")
+    @Operation(
+        summary = "Get user points balance",
+        description = "Get the current points balance for the user"
+    )
+    public ResponseEntity<ApiResponse<Integer>> getUserBalance(
+            @Parameter(hidden = true) Authentication authentication) {
+        UUID userId = authService.extractUserIdAsUUID(authentication);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Unable to extract user ID from token"));
+        }
+
+        Integer balance = pointsService.getUserPointsBalance(userId);
+        return ResponseEntity.ok(ApiResponse.success("Retrieved points balance", balance));
+    }
+
+    @PostMapping("/validate")
+    @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN', 'INSTRUCTOR')")
+    @Operation(
+        summary = "Validate user has enough points",
+        description = "Check if user has sufficient points for a resource. Used by Course Service before granting access."
+    )
+    public ResponseEntity<ApiResponse<PointsValidationResponse>> validatePoints(
+            @RequestParam @Parameter(description = "User ID to validate") UUID userId,
+            @RequestParam @Parameter(description = "Required points amount") Integer requiredPoints) {
+
+        log.info("Validating points for user: {} - Required: {}", userId, requiredPoints);
+
+        PointsValidationResponse validation = pointsService.validatePoints(userId, requiredPoints);
+
+        if (validation.isHasEnoughPoints()) {
+            return ResponseEntity.ok(ApiResponse.success("User has enough points", validation));
+        } else {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(validation.getMessage(), validation));
+        }
+    }
+
+    @PostMapping("/deduct")
+    @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN', 'INSTRUCTOR')")
+    @Operation(
+        summary = "Deduct points for resource access",
+        description = "Deduct points when user accesses a course module or quiz. Called by Course Service."
+    )
+    public ResponseEntity<ApiResponse<String>> deductPoints(
+            @RequestParam @Parameter(description = "User ID") UUID userId,
+            @RequestParam @Parameter(description = "Points to deduct") Integer points,
+            @RequestParam @Parameter(description = "Resource type (e.g., COURSE_MODULE, QUIZ)") String resourceType,
+            @RequestParam @Parameter(description = "Resource ID") UUID resourceId,
+            @RequestParam @Parameter(description = "Description") String description) {
+
+        log.info("Deducting {} points from user: {} for {} - {}", points, userId, resourceType, resourceId);
+
+        boolean success = pointsService.deductPointsForResource(userId, points, resourceType, resourceId, description);
+
+        if (success) {
+            return ResponseEntity.ok(ApiResponse.success("Points deducted successfully", "OK"));
+        } else {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error("Insufficient points or wallet not found"));
+        }
+    }
+
     @PostMapping("/redeem")
     @PreAuthorize("hasAnyRole('STUDENT', 'ADMIN')")
     @Operation(
@@ -106,9 +172,9 @@ public class PointsController {
                     .body(ApiResponse.error("Unable to extract user ID from token"));
         }
         
-        log.info("Fetching transaction history for user: {} (page: {}, size: {})", userId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<PointsTransactionDto> transactions = pointsService.getUserTransactionHistory(userId, pageable);
+
         return ResponseEntity.ok(ApiResponse.success("Retrieved transaction history", transactions));
     }
     

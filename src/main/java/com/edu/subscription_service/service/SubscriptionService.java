@@ -110,13 +110,13 @@ public class SubscriptionService {
         log.info("📝 Database subscription record created as log: {}", dbSubscription.getId());
 
         //Created kafka producer event
-        SubscriptionEvent event = new SubscriptionEvent(
-                userId.toString(),
-                dbSubscription.getId().toString(),
-                "SUBSCRIPTION_CREATED",
-                "Subscription created for plan: " + plan.getName()
-        );
-        eventProducer.sendEvent(event);
+//        SubscriptionEvent event = new SubscriptionEvent(
+//                userId.toString(),
+//                dbSubscription.getId().toString(),
+//                "SUBSCRIPTION_CREATED",
+//                "Subscription created for plan: " + plan.getName()
+//        );
+//        eventProducer.sendEvent(event);
 
         // Extract payment information from Stripe subscription
         PaymentIntentResponse paymentResponse = extractPaymentIntentFromSubscription(stripeSubscription, dbSubscription.getId());

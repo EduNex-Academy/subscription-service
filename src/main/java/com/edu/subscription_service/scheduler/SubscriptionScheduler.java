@@ -2,7 +2,6 @@ package com.edu.subscription_service.scheduler;
 
 import com.edu.subscription_service.entity.UserSubscription;
 import com.edu.subscription_service.repository.UserSubscriptionRepository;
-import com.edu.subscription_service.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,22 +15,7 @@ import java.util.List;
 @Slf4j
 public class SubscriptionScheduler {
     
-    private final SubscriptionService subscriptionService;
     private final UserSubscriptionRepository subscriptionRepository;
-    
-    /**
-     * Process expired subscriptions every hour
-     */
-    @Scheduled(fixedRate = 3600000) // Run every hour
-    public void expireSubscriptions() {
-        log.info("Running subscription expiration check");
-        try {
-            subscriptionService.expireSubscriptions();
-            log.info("Subscription expiration check completed");
-        } catch (Exception e) {
-            log.error("Error during subscription expiration check", e);
-        }
-    }
     
     /**
      * Clean up and maintenance tasks
