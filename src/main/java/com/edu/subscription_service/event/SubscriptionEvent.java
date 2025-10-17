@@ -8,9 +8,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SubscriptionEvent {
-    private String userId;
-    private String subscriptionId;
-    private String eventType;
-    private String message;
-    private String notificationType;
+    private String to; // recipient email
+    private String userName;
+    private String planName;
+    private String planDuration;
+    private Double amount; // align with Notification service DTO (Double)
+    private String expiryDate;
+    private String notificationType; // e.g. SUBSCRIPTION_ACTIVATED, SUBSCRIPTION_CANCELLED
 }

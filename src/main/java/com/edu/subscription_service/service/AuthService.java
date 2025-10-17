@@ -157,6 +157,34 @@ public class AuthService {
     }
 
     /**
+     * Extracts user name from JWT token
+     */
+    public String extractUserName(Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt)) {
+            log.warn("No valid JWT authentication found");
+            return null;
+        }
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        String name = jwt.getClaimAsString("name");
+        if (name == null) {
+            name = jwt.getClaimAsString("preferred_username");
+        }
+        if (name == null) {
+            name = jwt.getClaimAsString("given_name");
+        }
+        log.debug("Extracted user name: {}", name);
+        return name;
+    }
+
+    /**
+     * Gets current user name from security context
+     */
+    public String getCurrentUserName() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return extractUserName(authentication);
+    }
+
+    /**
      * Validates if the current user can access resources for the given user ID
      * Admins can access any user's resources, others can only access their own
      */

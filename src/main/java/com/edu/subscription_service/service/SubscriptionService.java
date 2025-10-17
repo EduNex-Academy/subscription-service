@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,8 @@ public class SubscriptionService {
     private final PointsService pointsService;
     private final ModelMapper modelMapper;
     private final SubscriptionEventProducer eventProducer;
-    
+    private final AuthService authService;
+
     @Transactional
     public PaymentIntentResponse createSubscription(UUID userId, CreateSubscriptionRequest request) throws StripeException {
         log.info("🚀 Creating Stripe-first subscription for user: {} with plan: {}", userId, request.getPlanId());
@@ -112,12 +114,26 @@ public class SubscriptionService {
         log.info("📝 Database subscription record created as log: {}", dbSubscription.getId());
 
         //Created kafka producer event
+        String email = authService.getCurrentUserEmail();
+        if (email == null || email.isEmpty()) {
+            email = request.getEmail();
+        }
+        String userName = authService.getCurrentUserName();
+        if (userName == null || userName.isEmpty()) {
+            userName = userId.toString();
+        }
+        String planDuration = plan.getBillingCycle() != null ? plan.getBillingCycle().name() : null;
+        Double amount = plan.getPrice() != null ? plan.getPrice().doubleValue() : null;
+        String expiryDate = dbSubscription.getEndDate() != null ? dbSubscription.getEndDate().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+
         SubscriptionEvent event = new SubscriptionEvent(
-                userId.toString(),                            // userId
-                dbSubscription.getId().toString(),           // subscriptionId
-                "SUBSCRIPTION_CREATED",                       // eventType
-                "Subscription created for plan: " + plan.getName(), // message
-                "INFO"                                       // notificationType
+                email,                                       // to (user email)
+                userName,                                    // userName
+                plan.getName(),                              // planName
+                planDuration,                                // planDuration
+                amount,                                      // amount
+                expiryDate,                                  // expiryDate
+                "SUBSCRIPTION_ACTIVATED"                    // notificationType
         );
 
         eventProducer.sendEvent(event);
@@ -452,12 +468,28 @@ public class SubscriptionService {
                 stripeService.cancelSubscription(subscription.getStripeSubscriptionId());
                 log.info("✅ Successfully cancelled in Stripe");
 
+                String email = authService.getCurrentUserEmail();
+                if (email == null || email.isEmpty()) {
+                    // try to fallback to stored email if available via subscription or stripeService (not available here)
+                    email = "";
+                }
+                String userName = authService.getCurrentUserName();
+                if (userName == null || userName.isEmpty()) {
+                    userName = subscription.getUserId() != null ? subscription.getUserId().toString() : "";
+                }
+                String planName = subscription.getPlan() != null ? subscription.getPlan().getName() : "";
+                String planDuration = subscription.getPlan() != null && subscription.getPlan().getBillingCycle() != null ? subscription.getPlan().getBillingCycle().name() : null;
+                Double amount = subscription.getPlan() != null && subscription.getPlan().getPrice() != null ? subscription.getPlan().getPrice().doubleValue() : null;
+                String expiryDate = subscription.getEndDate() != null ? subscription.getEndDate().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+
                 SubscriptionEvent event = new SubscriptionEvent(
-                        subscription.getUserId().toString(),                             // userId
-                        subscription.getId().toString(),                                 // subscriptionId
-                        "SUBSCRIPTION_CANCELLED",                                        // eventType
-                        "Your subscription for plan " + subscription.getPlan().getName() + " has been cancelled.", // message
-                        "INFO"                                                           // notificationType
+                        email,
+                        userName,
+                        planName,
+                        planDuration,
+                        amount,
+                        expiryDate,
+                        "SUBSCRIPTION_CANCELLED"
                 );
 
                 eventProducer.sendEvent(event);
@@ -610,7 +642,31 @@ public class SubscriptionService {
                     log.error("❌ Failed to award points for subscription: {}", userSubscription.getId(), e);
                 }
             }
-            
+
+            // Send activation event to notification service
+            String email = authService.getCurrentUserEmail();
+            if (email == null || email.isEmpty()) {
+                email = null; // leave null if not available
+            }
+            String userName = authService.getCurrentUserName();
+            if (userName == null || userName.isEmpty()) {
+                userName = userId != null ? userId.toString() : null;
+            }
+            String planDuration = plan.getBillingCycle() != null ? plan.getBillingCycle().name() : null;
+            Double amount = plan.getPrice() != null ? plan.getPrice().doubleValue() : null;
+            String expiryDate = userSubscription.getEndDate() != null ? userSubscription.getEndDate().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+
+            SubscriptionEvent event = new SubscriptionEvent(
+                    email,
+                    userName,
+                    plan.getName(),
+                    planDuration,
+                    amount,
+                    expiryDate,
+                    "SUBSCRIPTION_ACTIVATED"
+            );
+            eventProducer.sendEvent(event);
+
             return modelMapper.map(userSubscription, UserSubscriptionDto.class);
             
         } catch (StripeException e) {

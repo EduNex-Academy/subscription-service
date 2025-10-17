@@ -14,7 +14,7 @@ public class SubscriptionEventProducer {
     private static final Logger logger = LoggerFactory.getLogger(SubscriptionEventProducer.class);
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
-    private static final String TOPIC = "subscription-events-topic";
+    private static final String TOPIC = "subscription-email-topic";
 
     public void sendEvent(SubscriptionEvent event) {
         kafkaTemplate.send(TOPIC, event);
