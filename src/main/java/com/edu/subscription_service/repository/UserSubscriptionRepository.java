@@ -32,4 +32,8 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     
     @Query("SELECT us FROM UserSubscription us WHERE us.userId = :userId AND us.status = :status")
     List<UserSubscription> findByUserIdAndStatus(@Param("userId") UUID userId, @Param("status") UserSubscription.SubscriptionStatus status);
+
+    // find subscriptions expiring between start and end (inclusive) and are active
+    @Query("SELECT us FROM UserSubscription us WHERE us.endDate BETWEEN :start AND :end AND us.status = 'ACTIVE'")
+    List<UserSubscription> findExpiringBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 }

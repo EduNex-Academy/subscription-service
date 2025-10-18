@@ -7,6 +7,7 @@ import com.edu.subscription_service.entity.Payment;
 import com.edu.subscription_service.entity.SubscriptionPlan;
 import com.edu.subscription_service.event.SubscriptionEvent;
 import com.edu.subscription_service.entity.UserSubscription;
+import com.edu.subscription_service.event.SubscriptionPushEvent;
 import com.edu.subscription_service.repository.SubscriptionPlanRepository;
 import com.edu.subscription_service.repository.UserSubscriptionRepository;
 import com.stripe.exception.StripeException;
@@ -43,6 +44,7 @@ public class SubscriptionService {
     private final ModelMapper modelMapper;
     private final SubscriptionEventProducer eventProducer;
     private final AuthService authService;
+    private final PushNotificationProducer pushNotificationProducer; // added
 
     @Transactional
     public PaymentIntentResponse createSubscription(UUID userId, CreateSubscriptionRequest request) throws StripeException {
@@ -120,7 +122,7 @@ public class SubscriptionService {
         }
         String userName = authService.getCurrentUserName();
         if (userName == null || userName.isEmpty()) {
-            userName = userId.toString();
+            userName = userId != null ? userId.toString() : null; // safe
         }
         String planDuration = plan.getBillingCycle() != null ? plan.getBillingCycle().name() : null;
         Double amount = plan.getPrice() != null ? plan.getPrice().doubleValue() : null;
@@ -137,6 +139,21 @@ public class SubscriptionService {
         );
 
         eventProducer.sendEvent(event);
+
+        // send push notification event as well
+        try {
+            SubscriptionPushEvent pushEvent = new SubscriptionPushEvent(
+                    userId != null ? userId.toString() : null,
+                    dbSubscription.getId() != null ? dbSubscription.getId().toString() : null,
+                    "SUBSCRIPTION_ACTIVATED",
+                    "Your subscription has been activated",
+                    "SUBSCRIPTION_ACTIVATED"
+            );
+            pushNotificationProducer.sendPush(pushEvent);
+            log.info("📨 Push notification event sent for activation");
+        } catch (Exception e) {
+            log.error("Failed to send push notification event", e);
+        }
 
         // Extract payment information from Stripe subscription
         PaymentIntentResponse paymentResponse = extractPaymentIntentFromSubscription(stripeSubscription, dbSubscription.getId());
@@ -389,6 +406,21 @@ public class SubscriptionService {
         }
 
         log.info("Subscription activated successfully: {}", subscriptionId);
+
+        // send push notification event
+        try {
+            SubscriptionPushEvent pushEvent = new SubscriptionPushEvent(
+                    subscription.getUserId() != null ? subscription.getUserId().toString() : null,
+                    subscription.getId() != null ? subscription.getId().toString() : null,
+                    "SUBSCRIPTION_ACTIVATED",
+                    "Your subscription has been activated",
+                    "SUBSCRIPTION_ACTIVATED"
+            );
+            pushNotificationProducer.sendPush(pushEvent);
+            log.info("📨 Push notification event sent for activation (manual)");
+        } catch (Exception e) {
+            log.error("Failed to send push notification event (manual activation)", e);
+        }
     }
     
     public List<UserSubscriptionDto> getUserSubscriptions(UUID userId) {
@@ -475,7 +507,7 @@ public class SubscriptionService {
                 }
                 String userName = authService.getCurrentUserName();
                 if (userName == null || userName.isEmpty()) {
-                    userName = subscription.getUserId() != null ? subscription.getUserId().toString() : "";
+                    userName = subscription.getUserId() != null ? subscription.getUserId().toString() : ""; // safe
                 }
                 String planName = subscription.getPlan() != null ? subscription.getPlan().getName() : "";
                 String planDuration = subscription.getPlan() != null && subscription.getPlan().getBillingCycle() != null ? subscription.getPlan().getBillingCycle().name() : null;
@@ -494,6 +526,21 @@ public class SubscriptionService {
 
                 eventProducer.sendEvent(event);
                 log.info("📨 Kafka event for cancellation sent successfully.");
+
+                // send push cancellation event
+                try {
+                    SubscriptionPushEvent pushEvent = new SubscriptionPushEvent(
+                            subscription.getUserId() != null ? subscription.getUserId().toString() : null,
+                            subscription.getId() != null ? subscription.getId().toString() : null,
+                            "SUBSCRIPTION_CANCELLED",
+                            "Your subscription has been cancelled",
+                            "SUBSCRIPTION_CANCELLED"
+                    );
+                    pushNotificationProducer.sendPush(pushEvent);
+                    log.info("📨 Push notification event sent for cancellation");
+                } catch (Exception e) {
+                    log.error("Failed to send push notification event for cancellation", e);
+                }
                 // The webhook will handle updating our database
                 log.info("📡 Webhook will update database status automatically");
 
@@ -513,7 +560,7 @@ public class SubscriptionService {
         
         log.info("🎉 Subscription cancellation completed");
     }
-    
+
     @Transactional
     public void expireSubscriptions() {
         log.info("🕐 Processing expired subscriptions (checking against Stripe)");
@@ -650,7 +697,7 @@ public class SubscriptionService {
             }
             String userName = authService.getCurrentUserName();
             if (userName == null || userName.isEmpty()) {
-                userName = userId != null ? userId.toString() : null;
+                userName = userId != null ? userId.toString() : null; // safe
             }
             String planDuration = plan.getBillingCycle() != null ? plan.getBillingCycle().name() : null;
             Double amount = plan.getPrice() != null ? plan.getPrice().doubleValue() : null;
@@ -666,6 +713,21 @@ public class SubscriptionService {
                     "SUBSCRIPTION_ACTIVATED"
             );
             eventProducer.sendEvent(event);
+
+            // send push event
+            try {
+                SubscriptionPushEvent pushEvent = new SubscriptionPushEvent(
+                        userId != null ? userId.toString() : null,
+                        userSubscription.getId() != null ? userSubscription.getId().toString() : null,
+                        "SUBSCRIPTION_ACTIVATED",
+                        "Your subscription has been activated",
+                        "SUBSCRIPTION_ACTIVATED"
+                );
+                pushNotificationProducer.sendPush(pushEvent);
+                log.info("📨 Push notification event sent for activation (post-setup)");
+            } catch (Exception e) {
+                log.error("Failed to send push notification event (post-setup)", e);
+            }
 
             return modelMapper.map(userSubscription, UserSubscriptionDto.class);
             

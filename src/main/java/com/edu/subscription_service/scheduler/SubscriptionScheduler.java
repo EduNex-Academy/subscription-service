@@ -1,7 +1,9 @@
 package com.edu.subscription_service.scheduler;
 
 import com.edu.subscription_service.entity.UserSubscription;
+import com.edu.subscription_service.event.SubscriptionPushEvent;
 import com.edu.subscription_service.repository.UserSubscriptionRepository;
+import com.edu.subscription_service.service.PushNotificationProducer;
 import com.edu.subscription_service.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +20,8 @@ public class SubscriptionScheduler {
     
     private final SubscriptionService subscriptionService;
     private final UserSubscriptionRepository subscriptionRepository;
-    
+    private final PushNotificationProducer pushNotificationProducer;
+
     /**
      * Process expired subscriptions every hour
      */
@@ -33,6 +36,43 @@ public class SubscriptionScheduler {
         }
     }
     
+    /**
+     * Send push notifications for subscriptions that will expire in 2 days
+     * Runs daily at 9:00am
+     */
+    @Scheduled(cron = "0 0 9 * * *")
+    public void sendExpiryReminders() {
+        log.info("Running expiry reminder check (2 days before end)");
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime start = now.plusDays(2).withHour(0).withMinute(0).withSecond(0).withNano(0);
+            LocalDateTime end = start.plusDays(1).minusNanos(1);
+
+            List<UserSubscription> expiring = subscriptionRepository.findExpiringBetween(start, end);
+            log.info("Found {} subscriptions expiring between {} and {}", expiring.size(), start, end);
+
+            for (UserSubscription sub : expiring) {
+                try {
+                    SubscriptionPushEvent pushEvent = new SubscriptionPushEvent(
+                            sub.getUserId() != null ? sub.getUserId().toString() : null,
+                            sub.getId() != null ? sub.getId().toString() : null,
+                            "EXPIRY_REMINDER",
+                            "Your subscription will expire in 2 days",
+                            "EXPIRY_ALERT"
+                    );
+                    pushNotificationProducer.sendPush(pushEvent);
+                    log.info("Sent expiry reminder push for subscription: {} user: {}", sub.getId(), sub.getUserId());
+                } catch (Exception ex) {
+                    log.error("Failed to send expiry push for subscription: {}", sub.getId(), ex);
+                }
+            }
+
+            log.info("Expiry reminder check completed");
+        } catch (Exception e) {
+            log.error("Error during expiry reminder check", e);
+        }
+    }
+
     /**
      * Clean up and maintenance tasks
      * Runs daily at 2 AM
